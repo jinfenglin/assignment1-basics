@@ -1,0 +1,6 @@
+{
+    "python.languageServer": "ruff-lsp",
+    "github.copilot.enable": {
+        "python": false
+    }
+}
