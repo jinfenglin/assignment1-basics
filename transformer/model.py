@@ -2,6 +2,15 @@ import torch.nn as nn
 import torch
 from einops import einsum
 
+def _init_weight(d_in:int, d_out:int,  device: torch.device = None, dtype: torch.dtype = None):
+    w = nn.Parameter(torch.empty(d_in, d_out, device = device, dtype = dtype))
+    return nn.init.trunc_normal_(
+        w,
+        mean=0.0,
+        std=1,
+        a=-3,
+        b=3,
+    )
 
 class Linear(nn.Module):
     def __init__(self, in_features: int, out_features: int, device: torch.device = None, dtype: torch.dtype = None):
@@ -50,3 +59,28 @@ class RMSNorm(nn.Module):
         rms = torch.sqrt(x.pow(2).mean(dim=-1, keepdim=True) + self.eps)
         x = (x * self.w)/rms
         return x.to(self.dtype) 
+
+class Silu(nn.Module):
+    def __init__(self):
+        super().__init__()
+    
+    def forward(self, x: torch.Tensor):
+        return x  * nn.functional.sigmoid(x)
+
+
+class SwiGLU(nn.Module):
+    def __init__(self, d_model: int, d_ff: int = None, device: torch.device = None, dtype: torch.dtype = None):
+        super().__init__()
+        if d_ff is None:
+            d_ff = int((d_model * 8 / 3) // 64 * 64)
+        self.w1 = _init_weight(d_ff, d_model, device, dtype)
+        self.w2 = _init_weight(d_model, d_ff, device, dtype)
+        self.w3 = _init_weight(d_ff, d_model, device, dtype)
+        self.silu = Silu()
+
+    def forward(self, x: torch.Tensor):
+        silu_t = self.silu(einsum(x,  self.w1, "... d_model, d_ff d_model -> ... d_ff")) 
+        glu_t = einsum(x,  self.w3, "... d_model, d_ff d_model -> ... d_ff")
+        t = silu_t * glu_t
+        return einsum(t, self.w2, "...  d_ff, d_model d_ff -> ... d_model")
+        
