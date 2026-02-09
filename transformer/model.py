@@ -1,6 +1,7 @@
 import torch.nn as nn
 import torch
 from einops import einsum
+import math
 
 
 def _init_weight(d_in: int, d_out: int, device: torch.device = None, dtype: torch.dtype = None):
@@ -115,7 +116,17 @@ class RotaryPositionalEmbedding(nn.Module):
 
 
 def softmax(x: torch.Tensor, dim: int):
+    # Handle -inf by replacing with min finite value before max computation
     max_val = torch.max(x, dim=dim, keepdim=True).values
+    # Clamp to avoid NaN from -inf - -inf
+    max_val = torch.clamp(max_val, min=-1e9)
     val = torch.exp(x - max_val)
-    return val / torch.sum(val, dim=dim, keepdim=True)
+    sum_val = torch.sum(val, dim=dim, keepdim=True)
+    return val / sum_val
+        
+
+def scaled_dot_product_attention(Q: torch.Tensor, K: torch.Tensor, V: torch.Tensor, mask: torch.Tensor):
+    attention_matrix = einsum(Q, K, "... seq_q dv, ... seq_k dv -> ... seq_q seq_k") / math.sqrt(K.shape[-1])
+    attention_matrix = softmax(attention_matrix.masked_fill(~mask, float('-inf')), dim=-1)
+    return einsum(attention_matrix, V, "... seq_q seq_kv, ... seq_kv dv -> ... seq_q dv")
         

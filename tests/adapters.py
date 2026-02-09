@@ -8,7 +8,16 @@ import numpy.typing as npt
 import torch
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
-from transformer.model import Linear, Embedding, RMSNorm, SwiGLU, Silu, RotaryPositionalEmbedding, softmax
+from transformer.model import (
+    Linear,
+    Embedding,
+    RMSNorm,
+    SwiGLU,
+    Silu,
+    RotaryPositionalEmbedding,
+    softmax,
+    scaled_dot_product_attention,
+)
 
 
 def run_linear(
@@ -31,7 +40,7 @@ def run_linear(
     """
 
     linear = Linear(d_in, d_out)
-    linear.load_state_dict({'w': weights})
+    linear.load_state_dict({"w": weights})
     return linear(in_features)
 
 
@@ -56,7 +65,6 @@ def run_embedding(
     embedding = Embedding(vocab_size, d_model)
     embedding.load_state_dict({"w": weights})
     return embedding(token_ids)
-     
 
 
 def run_swiglu(
@@ -89,11 +97,13 @@ def run_swiglu(
     # swiglu.w2.weight.data = w2_weight
     # swiglu.w3.weight.data = w3_weight
     swiglu = SwiGLU(d_model, d_ff)
-    swiglu.load_state_dict({
-        "w1": w1_weight,
-        "w2": w2_weight,
-        "w3": w3_weight,
-    })
+    swiglu.load_state_dict(
+        {
+            "w1": w1_weight,
+            "w2": w2_weight,
+            "w3": w3_weight,
+        }
+    )
     return swiglu(in_features)
 
 
@@ -115,7 +125,7 @@ def run_scaled_dot_product_attention(
     Returns:
         Float[Tensor, " ... queries d_v"]: Output of SDPA
     """
-    raise NotImplementedError
+    return scaled_dot_product_attention(Q, K, V, mask)
 
 
 def run_multihead_self_attention(
@@ -408,7 +418,6 @@ def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
     """
     silu = Silu()
     return silu(in_features)
-    
 
 
 def run_get_batch(
