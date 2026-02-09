@@ -2,8 +2,9 @@ import torch.nn as nn
 import torch
 from einops import einsum
 
-def _init_weight(d_in:int, d_out:int,  device: torch.device = None, dtype: torch.dtype = None):
-    w = nn.Parameter(torch.empty(d_in, d_out, device = device, dtype = dtype))
+
+def _init_weight(d_in: int, d_out: int, device: torch.device = None, dtype: torch.dtype = None):
+    w = nn.Parameter(torch.empty(d_in, d_out, device=device, dtype=dtype))
     return nn.init.trunc_normal_(
         w,
         mean=0.0,
@@ -11,6 +12,7 @@ def _init_weight(d_in:int, d_out:int,  device: torch.device = None, dtype: torch
         a=-3,
         b=3,
     )
+
 
 class Linear(nn.Module):
     def __init__(self, in_features: int, out_features: int, device: torch.device = None, dtype: torch.dtype = None):
@@ -50,22 +52,23 @@ class RMSNorm(nn.Module):
         super().__init__()
         self.d_model = d_model
         self.eps = eps
-        self.w = nn.Parameter(torch.ones( size = (d_model,), device = device, dtype = dtype))
-        self.device = device,
+        self.w = nn.Parameter(torch.ones(size=(d_model,), device=device, dtype=dtype))
+        self.device = (device,)
         self.dtype = dtype
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x.to(torch.float32)
         rms = torch.sqrt(x.pow(2).mean(dim=-1, keepdim=True) + self.eps)
-        x = (x * self.w)/rms
-        return x.to(self.dtype) 
+        x = (x * self.w) / rms
+        return x.to(self.dtype)
+
 
 class Silu(nn.Module):
     def __init__(self):
         super().__init__()
-    
+
     def forward(self, x: torch.Tensor):
-        return x  * nn.functional.sigmoid(x)
+        return x * nn.functional.sigmoid(x)
 
 
 class SwiGLU(nn.Module):
@@ -79,8 +82,33 @@ class SwiGLU(nn.Module):
         self.silu = Silu()
 
     def forward(self, x: torch.Tensor):
-        silu_t = self.silu(einsum(x,  self.w1, "... d_model, d_ff d_model -> ... d_ff")) 
-        glu_t = einsum(x,  self.w3, "... d_model, d_ff d_model -> ... d_ff")
+        silu_t = self.silu(einsum(x, self.w1, "... d_model, d_ff d_model -> ... d_ff"))
+        glu_t = einsum(x, self.w3, "... d_model, d_ff d_model -> ... d_ff")
         t = silu_t * glu_t
         return einsum(t, self.w2, "...  d_ff, d_model d_ff -> ... d_model")
-        
+
+
+class RotaryPositionalEmbedding(nn.Module):
+    def __init__(self, theta: float, d_k: int, max_seq_len: int, device=None):
+        super().__init__()
+        self.theta = theta
+        self.d_k = d_k
+        self.max_seq_len = max_seq_len
+        freq = 1.0 / (theta ** (torch.arange(0, d_k, 2).float() / d_k))  # (d_k//2)
+        freq = torch.cat([freq, freq])
+        pos = torch.arange(0, max_seq_len)
+        freq_cis = pos.unsqueeze(1) * freq  # (max_seq_len, d_k)
+
+        self.register_buffer("sin", torch.sin(freq_cis), persistent=False)
+        self.register_buffer("cos", torch.cos(freq_cis), persistent=False)
+
+    def forward(self, x: torch.Tensor, token_positions: torch.Tensor) -> torch.Tensor:
+        sin = self.sin[token_positions]  # （..., seq_len, d_k)
+        cos = self.cos[token_positions]
+        return x * cos + self.rotate_half(x) * sin
+
+    def rotate_half(self, x: torch.Tensor):
+        y = torch.empty(x.shape, dtype=x.dtype)
+        y[..., 0::2] = -x[..., 1::2]
+        y[..., 1::2] = x[..., 0::2]
+        return y
